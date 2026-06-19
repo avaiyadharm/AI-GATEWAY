@@ -581,15 +581,20 @@
   }
   .cursor {
     display: inline-block;
-    color: #888;
-    animation: blink 0.6s infinite;
-    font-size: 14px;
-    margin-left: 1px;
+    width: 2px;
+    height: 1em;
+    background: #a78bfa;
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    animation: blink 0.5s infinite;
+    border-radius: 1px;
   }
   .message.assistant {
     white-space: pre-wrap;
     word-break: break-word;
-    line-height: 1.7;
+    line-height: 1.8;
+    font-size: 14px;
+    letter-spacing: 0.01em;
   }
 </style>
 </head>
@@ -721,7 +726,7 @@
 <script>
 const MODELS = {
   groq: ["llama-3.1-8b-instant","llama-3.3-70b-versatile","meta-llama/llama-4-scout-17b-16e-instruct","qwen-qwen3-32b"],
-  openrouter: ["meta-llama/llama-3.3-70b-instruct:free","meta-llama/llama-3.1-8b-instruct:free","deepseek/deepseek-r1-distill-llama-70b:free","microsoft/phi-3-mini-128k-instruct:free","qwen/qwen-2.5-7b-instruct:free"]
+  openrouter: ["openrouter/free","openai/gpt-oss-120b:free","openai/gpt-oss-20b:free"]
 };
 
 let isStreaming = false;
@@ -940,6 +945,14 @@ onProviderChange(); // init
 renderConversationList();
 
 window.addEventListener('DOMContentLoaded', () => {
+    const savedModel = localStorage.getItem('llm_model');
+    const savedProvider = localStorage.getItem('llm_provider');
+    if (savedProvider === 'openrouter' && savedModel && 
+        !savedModel.endsWith(':free') && 
+        savedModel !== 'openrouter/free') {
+        localStorage.removeItem('llm_model');
+    }
+
     const chatContainer = document.getElementById('messages');
     const messages = conversations[currentConversationId]?.messages || [];
     if (messages.length > 0) {
@@ -1163,35 +1176,44 @@ async function sendMessage() {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
 
-        // Render markdown every 30ms instead of every token
-        // This makes streaming look smooth not janky
+        let buffer = '';
+        let renderScheduled = false;
+
         function scheduleRender() {
-            if (renderTimer) return;
-            renderTimer = setTimeout(() => {
-                renderTimer = null;
-                // Show plain text while streaming for smoothness
+            if (renderScheduled) return;
+            renderScheduled = true;
+            
+            requestAnimationFrame(() => {
+                renderScheduled = false;
+                // Show plain text while streaming
                 aiMessageDiv.innerHTML = escapeHtml(fullResponse) + 
                     '<span class="cursor">▋</span>';
                 chatContainer.scrollTop = chatContainer.scrollHeight;
-            }, 30);
+            });
         }
 
         while (true) {
             const { done, value } = await reader.read();
+            
             if (done) break;
+            
             const chunk = decoder.decode(value, { stream: true });
-            fullResponse += chunk;
-            scheduleRender();
+            
+            // Feed chunk character by character with small delay
+            // so it feels like typing not dumping
+            for (let i = 0; i < chunk.length; i++) {
+                await new Promise(resolve => setTimeout(resolve, 8));
+                fullResponse += chunk[i];
+                scheduleRender();
+            }
         }
 
-        // Cancel any pending render
-        if (renderTimer) {
-            clearTimeout(renderTimer);
-            renderTimer = null;
-        }
+        // Remove cursor
+        aiMessageDiv.querySelector('.cursor')?.remove();
 
-        // Final render with full markdown + copy buttons
+        // Final markdown render with code highlighting and copy buttons
         aiMessageDiv.innerHTML = renderMarkdown(fullResponse);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
         
         chatHistory.push({ role: "user", content: query });
         chatHistory.push({ role: "assistant", content: fullResponse });

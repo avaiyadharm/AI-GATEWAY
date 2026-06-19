@@ -53,8 +53,14 @@ temperature: float, system_prompt: str = None, history: list = []):
             stream=True
         )
         async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            content = chunk.choices[0].delta.content
+            if content:
+                words = content.split(' ')
+                for i, word in enumerate(words):
+                    if i < len(words) - 1:
+                        yield word + ' '
+                    else:
+                        yield word
     except Exception as e:
         error_msg = str(e)
         if "401" in error_msg:

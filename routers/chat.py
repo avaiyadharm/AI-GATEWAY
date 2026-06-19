@@ -96,11 +96,9 @@ async def list_models():
             "qwen-qwen3-32b",
         ],
         "openrouter": [
-            "meta-llama/llama-3.3-70b-instruct:free",
-            "meta-llama/llama-3.1-8b-instruct:free",
-            "deepseek/deepseek-r1-distill-llama-70b:free",
-            "microsoft/phi-3-mini-128k-instruct:free",
-            "qwen/qwen-2.5-7b-instruct:free"
+            "openai/gpt-oss-120b:free",
+            "openai/gpt-oss-20b:free",
+            "openrouter/free"
         ]
     }
 
