@@ -46,6 +46,31 @@
     overflow: hidden;
   }
 
+  /* ── History Panel ── */
+  #historyPanel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 260px;
+    height: 100vh;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    z-index: 1000;
+    display: none;
+    flex-direction: column;
+    font-family: inherit;
+  }
+
+  .conv-item {
+    padding:10px 12px; border-radius:8px; cursor:pointer;
+    margin-bottom:4px; position:relative;
+    background: transparent;
+    border: 1px solid transparent;
+    transition: background 0.15s;
+  }
+  .conv-item:hover { background: var(--surface2) !important; }
+  .conv-item.active { background: var(--surface); border-color: var(--border); }
+
   /* ── Sidebar ── */
   aside {
     width: 260px;
@@ -454,6 +479,8 @@
     max-height: 160px;
     min-height: 22px;
     padding: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   textarea::placeholder { color: var(--text-dim); }
@@ -547,18 +574,44 @@
   }
 
   /* Streaming cursor animation */
-  .streaming-cursor::after {
-    content: '▋';
-    animation: cursorBlink 0.7s infinite;
-    color: #888;
-  }
-  @keyframes cursorBlink {
+  /* Streaming cursor animation */
+  @keyframes blink {
     0%, 100% { opacity: 1; }
     50% { opacity: 0; }
+  }
+  .cursor {
+    display: inline-block;
+    color: #888;
+    animation: blink 0.6s infinite;
+    font-size: 14px;
+    margin-left: 1px;
+  }
+  .message.assistant {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.7;
   }
 </style>
 </head>
 <body>
+
+<div id="historyPanel">
+    <!-- Header -->
+    <div style="padding:16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+        <span style="color:var(--text); font-weight:600; font-size:14px;">Chat History</span>
+        <button id="closeHistoryBtn" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px; line-height:1;">×</button>
+    </div>
+    <!-- New chat button -->
+    <div style="padding:12px 16px; border-bottom:1px solid var(--border);">
+        <button id="newChatBtn" style="width:100%; padding:8px 12px; background:var(--surface2); border:1px solid var(--border); color:var(--accent); border-radius:8px; cursor:pointer; font-size:13px; display:flex; align-items:center; gap:8px; justify-content:center;">+ New Conversation</button>
+    </div>
+    <!-- Conversation list -->
+    <div id="conversationList" style="flex:1; overflow-y:auto; padding:8px;"></div>
+    <!-- Footer -->
+    <div style="padding:12px 16px; border-top:1px solid var(--border);">
+        <button id="clearAllBtn" style="width:100%; padding:7px; background:none; border:1px solid var(--border); color:#ef4444; border-radius:6px; cursor:pointer; font-size:12px;">Clear All History</button>
+    </div>
+</div>
 
 <aside>
   <div class="logo">
@@ -606,6 +659,16 @@
     </div>
   </div>
 
+  <div style="margin-top:24px; padding:12px; background:var(--surface); border-radius:6px; border:1px solid var(--border-soft);">
+    <div style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Session</div>
+    <div style="font-size:12px; color:var(--text);">
+        <span id="historyCount">0 messages</span>
+    </div>
+    <div style="font-size:10px; color:var(--text-dim); margin-top:4px;">
+        Saved in browser
+    </div>
+  </div>
+
   <div class="bottom">
     <div class="status-row">
       <div class="status-dot" id="statusDot"></div>
@@ -618,7 +681,14 @@
 <main>
   <header>
     <div class="header-model" id="headerModel">model / <span>—</span></div>
-    <button class="clear-btn" onclick="clearChat()">Clear chat</button>
+    <div>
+      <button id="historyToggleBtn" style="
+          background:none; border:1px solid var(--border);
+          color:var(--text-muted); border-radius:6px; padding:5px 12px;
+          cursor:pointer; font-size:12px; margin-right:8px;
+      ">☰ History</button>
+      <button class="clear-btn" id="clearBtn">Clear chat</button>
+    </div>
   </header>
 
   <div id="messages">
@@ -654,7 +724,51 @@ const MODELS = {
   openrouter: ["meta-llama/llama-3.3-70b-instruct:free","meta-llama/llama-3.1-8b-instruct:free","deepseek/deepseek-r1-distill-llama-70b:free","microsoft/phi-3-mini-128k-instruct:free","qwen/qwen-2.5-7b-instruct:free"]
 };
 
+let isStreaming = false;
 let isLoading = false;
+
+// Conversation management
+let conversations = loadConversations();
+let currentConversationId = localStorage.getItem('current_conversation_id');
+let chatHistory = [];
+
+// If no current conversation exists, create one
+if (!currentConversationId || !conversations[currentConversationId]) {
+    currentConversationId = createNewConversation();
+} else {
+    chatHistory = conversations[currentConversationId].history || [];
+}
+
+function loadConversations() {
+    try {
+        const saved = localStorage.getItem('llm_conversations');
+        return saved ? JSON.parse(saved) : {};
+    } catch(e) { return {}; }
+}
+
+function saveConversations() {
+    try {
+        localStorage.setItem('llm_conversations', JSON.stringify(conversations));
+        localStorage.setItem('current_conversation_id', currentConversationId);
+    } catch(e) { console.error('Save failed:', e); }
+}
+
+function createNewConversation() {
+    const id = 'conv_' + Date.now();
+    conversations[id] = {
+        id: id,
+        title: 'New Chat',
+        timestamp: Date.now(),
+        history: [],
+        messages: []
+    };
+    saveConversations();
+    return id;
+}
+
+function generateTitle(query) {
+    return query.length > 40 ? query.substring(0, 40) + '...' : query;
+}
 
 function onProviderChange() {
   const p = document.getElementById('providerSelect').value;
@@ -663,6 +777,13 @@ function onProviderChange() {
   const badge = document.getElementById('providerBadge');
   badge.className = 'provider-badge ' + p;
   badge.innerHTML = `<div class="dot"></div> ${p === 'groq' ? 'groq · fast inference' : 'openrouter · multi-model'}`;
+  
+  // Restore model if valid for this provider
+  const savedModel = localStorage.getItem('llm_model');
+  if (savedModel && MODELS[p].includes(savedModel)) {
+      ms.value = savedModel;
+  }
+  
   updateHeader();
 }
 
@@ -670,11 +791,234 @@ function updateHeader() {
   const p = document.getElementById('providerSelect').value;
   const m = document.getElementById('modelSelect').value;
   document.getElementById('headerModel').innerHTML = `${p} / <span>${m}</span>`;
+  document.getElementById('historyCount').innerText = chatHistory.length + ' messages';
 }
 
-document.getElementById('modelSelect').addEventListener('change', updateHeader);
+let previousProvider = document.getElementById('providerSelect').value;
+
+document.getElementById('providerSelect').addEventListener('change', () => {
+    localStorage.setItem('llm_provider', document.getElementById('providerSelect').value);
+    
+    if (chatHistory.length > 0) {
+        if (confirm('Changing provider will clear chat history. Continue?')) {
+            chatHistory = [];
+            localStorage.removeItem('llm_gateway_history');
+            document.getElementById('historyCount').innerText = '0 messages';
+            document.getElementById('messages').innerHTML = '';
+        } else {
+            document.getElementById('providerSelect').value = previousProvider;
+            localStorage.setItem('llm_provider', previousProvider);
+            return;
+        }
+    }
+    previousProvider = document.getElementById('providerSelect').value;
+    onProviderChange();
+});
+
+document.getElementById('modelSelect').addEventListener('change', () => {
+    localStorage.setItem('llm_model', document.getElementById('modelSelect').value);
+    updateHeader();
+});
+
+function renderConversationList() {
+    const list = document.getElementById('conversationList');
+    const sorted = Object.values(conversations)
+        .sort((a, b) => b.timestamp - a.timestamp);
+    
+    if (sorted.length === 0) {
+        list.innerHTML = '<div style="color:var(--text-dim); font-size:12px; ' +
+            'text-align:center; padding:20px;">No conversations yet</div>';
+        return;
+    }
+    
+    list.innerHTML = sorted.map(conv => {
+        const isActive = conv.id === currentConversationId;
+        const date = new Date(conv.timestamp).toLocaleDateString();
+        const time = new Date(conv.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        const msgCount = Math.floor((conv.history || []).length / 2);
+        
+        return `
+        <div class="conv-item ${isActive ? 'active' : ''}" data-id="${conv.id}">
+            <div style="color:${isActive ? 'var(--accent)' : 'var(--text-muted)'}; 
+                font-size:13px; font-weight:500; 
+                white-space:nowrap; overflow:hidden; 
+                text-overflow:ellipsis; padding-right:24px;">
+                ${conv.title}
+            </div>
+            <div style="color:var(--text-dim); font-size:11px; margin-top:3px;">
+                ${date} ${time} · ${msgCount} msg${msgCount !== 1 ? 's' : ''}
+            </div>
+            <button onclick="deleteConversation('${conv.id}', event)" style="
+                position:absolute; top:8px; right:8px;
+                background:none; border:none; color:var(--text-muted);
+                cursor:pointer; font-size:14px; padding:2px 4px;
+                border-radius:4px; line-height:1;
+            " title="Delete">×</button>
+        </div>`;
+    }).join('');
+    
+    document.querySelectorAll('.conv-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON') return;
+            switchConversation(item.dataset.id);
+        });
+    });
+}
+
+function switchConversation(id) {
+    if (id === currentConversationId) return;
+    saveCurrentConversation();
+    currentConversationId = id;
+    chatHistory = conversations[id].history || [];
+    
+    const chatContainer = document.getElementById('messages');
+    chatContainer.innerHTML = '';
+    const messages = conversations[id].messages || [];
+    if (messages.length === 0) {
+      chatContainer.appendChild(Object.assign(document.createElement('div'), {
+        id: 'emptyState', className: 'empty-state',
+        innerHTML: `<div class="empty-icon">🔮</div><h2>Ask anything</h2><p>Route your query through any provider and model.</p>`
+      }));
+    } else {
+      messages.forEach(msg => {
+          const bubble = addMessage(msg.role, '');
+          if (msg.role === 'assistant') {
+              bubble.innerHTML = renderMarkdown(msg.content);
+              bubble.classList.add('message', 'assistant');
+          } else {
+              bubble.textContent = msg.content;
+          }
+      });
+    }
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+    updateSessionInfo();
+    renderConversationList();
+    saveConversations();
+}
+
+function deleteConversation(id, event) {
+    event.stopPropagation();
+    if (!confirm('Delete this conversation?')) return;
+    delete conversations[id];
+    
+    if (id === currentConversationId) {
+        currentConversationId = createNewConversation();
+        chatHistory = [];
+        const chatContainer = document.getElementById('messages');
+        chatContainer.innerHTML = '';
+        chatContainer.appendChild(Object.assign(document.createElement('div'), {
+          id: 'emptyState', className: 'empty-state',
+          innerHTML: `<div class="empty-icon">🔮</div><h2>Ask anything</h2><p>Route your query through any provider and model.</p>`
+        }));
+    }
+    saveConversations();
+    renderConversationList();
+    updateSessionInfo();
+}
+
+function saveCurrentConversation() {
+    if (!conversations[currentConversationId]) return;
+    conversations[currentConversationId].history = chatHistory;
+    saveConversations();
+}
+
+function updateSessionInfo() {
+    const el = document.getElementById('historyCount');
+    if (el) {
+        const msgCount = Math.floor(chatHistory.length / 2);
+        el.innerText = msgCount + ' message' + (msgCount !== 1 ? 's' : '');
+    }
+}
+
+const savedProvider = localStorage.getItem('llm_provider');
+if (savedProvider && MODELS[savedProvider]) {
+    document.getElementById('providerSelect').value = savedProvider;
+    previousProvider = savedProvider;
+}
 
 onProviderChange(); // init
+renderConversationList();
+
+window.addEventListener('DOMContentLoaded', () => {
+    const chatContainer = document.getElementById('messages');
+    const messages = conversations[currentConversationId]?.messages || [];
+    if (messages.length > 0) {
+        const empty = document.getElementById('emptyState');
+        if (empty) empty.remove();
+        messages.forEach(msg => {
+            const bubble = addMessage(msg.role, '');
+            if (msg.role === 'assistant') {
+                bubble.innerHTML = renderMarkdown(msg.content);
+                bubble.classList.add('message', 'assistant');
+            } else {
+                bubble.textContent = msg.content;
+            }
+        });
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+    updateSessionInfo();
+    
+    document.getElementById('historyToggleBtn').addEventListener('click', () => {
+        const panel = document.getElementById('historyPanel');
+        panel.style.display = panel.style.display === 'flex' ? 'none' : 'flex';
+        renderConversationList();
+    });
+
+    document.getElementById('closeHistoryBtn').addEventListener('click', () => {
+        document.getElementById('historyPanel').style.display = 'none';
+    });
+
+    document.getElementById('newChatBtn').addEventListener('click', () => {
+        saveCurrentConversation();
+        currentConversationId = createNewConversation();
+        chatHistory = [];
+        const chatContainer = document.getElementById('messages');
+        chatContainer.innerHTML = '';
+        chatContainer.appendChild(Object.assign(document.createElement('div'), {
+          id: 'emptyState', className: 'empty-state',
+          innerHTML: `<div class="empty-icon">🔮</div><h2>Ask anything</h2><p>Route your query through any provider and model.</p>`
+        }));
+        updateSessionInfo();
+        renderConversationList();
+        document.getElementById('historyPanel').style.display = 'none';
+    });
+
+    document.getElementById('clearAllBtn').addEventListener('click', () => {
+        if (!confirm('Delete ALL conversations? This cannot be undone.')) return;
+        conversations = {};
+        localStorage.removeItem('llm_conversations');
+        localStorage.removeItem('current_conversation_id');
+        currentConversationId = createNewConversation();
+        chatHistory = [];
+        const chatContainer = document.getElementById('messages');
+        chatContainer.innerHTML = '';
+        chatContainer.appendChild(Object.assign(document.createElement('div'), {
+          id: 'emptyState', className: 'empty-state',
+          innerHTML: `<div class="empty-icon">🔮</div><h2>Ask anything</h2><p>Route your query through any provider and model.</p>`
+        }));
+        updateSessionInfo();
+        renderConversationList();
+    });
+
+    const clearBtn = document.getElementById('clearBtn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            if (!confirm('Clear this chat?')) return;
+            delete conversations[currentConversationId];
+            currentConversationId = createNewConversation();
+            chatHistory = [];
+            const chatContainer = document.getElementById('messages');
+            chatContainer.innerHTML = '';
+            chatContainer.appendChild(Object.assign(document.createElement('div'), {
+              id: 'emptyState', className: 'empty-state',
+              innerHTML: `<div class="empty-icon">🔮</div><h2>Ask anything</h2><p>Route your query through any provider and model.</p>`
+            }));
+            saveConversations();
+            updateSessionInfo();
+            renderConversationList();
+        });
+    }
+});
 
 async function checkHealth() {
   try {
@@ -705,24 +1049,7 @@ function fillSuggestion(el) {
   autoResize(document.getElementById('queryInput'));
 }
 
-function clearChat() {
-  const msgs = document.getElementById('messages');
-  msgs.innerHTML = '';
-  msgs.appendChild(Object.assign(document.createElement('div'), {
-    id: 'emptyState',
-    className: 'empty-state',
-    innerHTML: `
-      <div class="empty-icon">🔮</div>
-      <h2>Ask anything</h2>
-      <p>Route your query through any provider and model.</p>
-      <div class="suggestions">
-        <div class="suggestion" onclick="fillSuggestion(this)">What is the capital of France?</div>
-        <div class="suggestion" onclick="fillSuggestion(this)">Explain quantum entanglement simply</div>
-        <div class="suggestion" onclick="fillSuggestion(this)">Write a haiku about code</div>
-        <div class="suggestion" onclick="fillSuggestion(this)">List 3 Python tips</div>
-      </div>`
-  }));
-}
+
 
 function addMessage(role, content, meta) {
   const empty = document.getElementById('emptyState');
@@ -785,69 +1112,126 @@ function addThinking() {
 }
 
 async function sendMessage() {
-  if (isLoading) return;
+    const messageInput = document.getElementById('queryInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const chatContainer = document.getElementById('messages');
+    const providerSelect = document.getElementById('providerSelect');
+    const modelSelect = document.getElementById('modelSelect');
+    const maxTokensInput = document.getElementById('maxTokens');
+    const temperatureInput = document.getElementById('tempRange');
 
-  const input = document.getElementById('queryInput');
-  const query = input.value.trim();
-  if (!query) return;
+    const query = messageInput.value.trim();
+    if (!query || isStreaming) return;
+    
+    isStreaming = true;
+    sendBtn.disabled = true;
+    messageInput.value = '';
+    
+    // Add user message
+    addMessage('user', query);
+    
+    // Create empty AI bubble
+    const aiMessageDiv = addMessage('ai', '');
+    aiMessageDiv.classList.add('message', 'assistant');
+    
+    // Show blinking cursor immediately
+    aiMessageDiv.innerHTML = '<span class="cursor">▋</span>';
+    
+    let fullResponse = '';
+    let renderTimer = null;
+    
+    try {
+        const response = await fetch('http://127.0.0.1:8000/api/chat/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                query: query,
+                provider: providerSelect.value,
+                model: modelSelect.value,
+                max_tokens: parseInt(maxTokensInput.value) || 4096,
+                temperature: parseFloat(temperatureInput.value) || 0.7,
+                history: chatHistory
+            })
+        });
 
-  const provider = document.getElementById('providerSelect').value;
-  const model = document.getElementById('modelSelect').value;
-  const temperature = parseFloat(document.getElementById('tempRange').value);
-  const max_tokens = parseInt(document.getElementById('maxTokens').value);
-
-  input.value = '';
-  autoResize(input);
-  isLoading = true;
-  document.getElementById('sendBtn').disabled = true;
-
-  addMessage('user', query);
-  const thinkEl = addThinking();
-
-  try {
-    const res = await fetch('http://127.0.0.1:8000/api/chat/stream', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, model, query, temperature, max_tokens })
-    });
-
-    thinkEl.remove();
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      addErrorMsg('API error ' + res.status + ': ' + (err.detail || res.statusText));
-    } else {
-      // Create an empty AI bubble to stream into
-      const bubble = addMessage('ai', '');
-      bubble.classList.add('streaming-cursor');
-      let fullResponse = '';
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          // Final render with copy buttons
-          bubble.innerHTML = renderMarkdown(fullResponse);
-          bubble.classList.remove('streaming-cursor');
-          break;
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            aiMessageDiv.innerHTML = '<span style="color:#ff6b6b;">⚠ ' + (err.detail || 'API error') + '</span>';
+            return;
         }
-        const token = decoder.decode(value, { stream: true });
-        fullResponse += token;
-        // Fast render while streaming (no copy buttons yet)
-        bubble.innerHTML = marked.parse(fullResponse);
-        document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
-      }
-    }
-  } catch (e) {
-    thinkEl.remove();
-    addErrorMsg('Could not reach http://127.0.0.1:8000 — is the server running?');
-  }
 
-  isLoading = false;
-  document.getElementById('sendBtn').disabled = false;
-  input.focus();
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        // Render markdown every 30ms instead of every token
+        // This makes streaming look smooth not janky
+        function scheduleRender() {
+            if (renderTimer) return;
+            renderTimer = setTimeout(() => {
+                renderTimer = null;
+                // Show plain text while streaming for smoothness
+                aiMessageDiv.innerHTML = escapeHtml(fullResponse) + 
+                    '<span class="cursor">▋</span>';
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }, 30);
+        }
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            fullResponse += chunk;
+            scheduleRender();
+        }
+
+        // Cancel any pending render
+        if (renderTimer) {
+            clearTimeout(renderTimer);
+            renderTimer = null;
+        }
+
+        // Final render with full markdown + copy buttons
+        aiMessageDiv.innerHTML = renderMarkdown(fullResponse);
+        
+        chatHistory.push({ role: "user", content: query });
+        chatHistory.push({ role: "assistant", content: fullResponse });
+        
+        if (conversations[currentConversationId].history.length === 0) {
+            conversations[currentConversationId].title = generateTitle(query);
+        }
+        
+        conversations[currentConversationId].history = chatHistory;
+        conversations[currentConversationId].timestamp = Date.now();
+        
+        if (!conversations[currentConversationId].messages) {
+            conversations[currentConversationId].messages = [];
+        }
+        conversations[currentConversationId].messages.push(
+            { role: "user", content: query },
+            { role: "assistant", content: fullResponse }
+        );
+        
+        saveConversations();
+        updateSessionInfo();
+        renderConversationList();
+        
+    } catch (error) {
+        aiMessageDiv.innerHTML = '<span style="color:#ff6b6b;">⚠ Connection error: ' + error.message + '</span>';
+    } finally {
+        isStreaming = false;
+        sendBtn.disabled = false;
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+        messageInput.focus();
+    }
+}
+
+// Add this helper function:
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 }
 
 function addErrorMsg(msg) {

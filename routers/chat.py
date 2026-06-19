@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 
 # ── Provider factory ──────────────────────────────────────────────────────────
-
 def get_provider_func(provider: str):
     """Return the correct service function based on provider name."""
     providers = {
@@ -46,7 +45,8 @@ async def chat(request: ChatRequest):
         model=request.model,
         max_tokens=request.max_tokens,
         temperature=request.temperature,
-        system_prompt=request.system_prompt
+        system_prompt=request.system_prompt,
+        history=request.history or []
     )
 
     logger.info(f"Response tokens: in={result.get('input_tokens')}, out={result.get('output_tokens')}")
@@ -58,24 +58,29 @@ async def chat(request: ChatRequest):
 async def chat_stream(request: ChatRequest):
     """Stream tokens from any supported LLM provider."""
     async def generate():
-        if request.provider == "groq":
-            async for token in call_groq_stream(
-                query=request.query,
-                model=request.model,
-                max_tokens=request.max_tokens,
-                temperature=request.temperature,
-                system_prompt=request.system_prompt
-            ):
-                yield token
-        elif request.provider == "openrouter":
-            async for token in call_openrouter_stream(
-                query=request.query,
-                model=request.model,
-                max_tokens=request.max_tokens,
-                temperature=request.temperature,
-                system_prompt=request.system_prompt
-            ):
-                yield token
+        try:
+            if request.provider == "groq":
+                async for token in call_groq_stream(
+                    query=request.query,
+                    model=request.model,
+                    max_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                    system_prompt=request.system_prompt,
+                    history=request.history or []
+                ):
+                    yield token
+            elif request.provider == "openrouter":
+                async for token in call_openrouter_stream(
+                    query=request.query,
+                    model=request.model,
+                    max_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                    system_prompt=request.system_prompt,
+                    history=request.history or []
+                ):
+                    yield token
+        except Exception as e:
+            yield f"\n\n⚠ **Error from Provider:** {str(e)}"
 
     return StreamingResponse(generate(), media_type="text/plain")
 
