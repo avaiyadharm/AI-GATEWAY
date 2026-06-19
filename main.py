@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse
 from routers import chat
 from dotenv import load_dotenv
 import os
@@ -31,14 +31,14 @@ app.add_middleware(
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(chat.router)
 
-# ── Serve the frontend folder at /frontend (static files) ─────────────────────
-app.mount("/frontend", StaticFiles(directory="frontend", html=True), name="frontend")
+# ── Serve the frontend folder at /static (static files) ───────────────────────
+app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 @app.get("/")
 async def root():
     return {"message": "LLM Gateway is running. Visit /docs for API docs or /ui for the chat UI."}
 
 @app.get("/ui")
-async def ui_redirect():
-    """Shortcut: redirect /ui → the frontend HTML."""
-    return RedirectResponse(url="/frontend/llm-gateway-ui.html")
+async def serve_ui():
+    return FileResponse("frontend/llm-gateway-ui.html")
+

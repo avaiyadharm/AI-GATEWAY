@@ -62,10 +62,25 @@ async def list_models():
             "qwen-qwen3-32b",
         ],
         "openrouter": [
-            "mistralai/mistral-7b-instruct",
-            "anthropic/claude-3-haiku",
-            "openai/gpt-4o-mini",
-            "google/gemma-2-9b-it:free",
-            "meta-llama/llama-3-8b-instruct:free"
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "meta-llama/llama-3.1-8b-instruct:free",
+            "deepseek/deepseek-r1-distill-llama-70b:free",
+            "microsoft/phi-3-mini-128k-instruct:free",
+            "qwen/qwen-2.5-7b-instruct:free"
         ]
     }
+
+@router.get("/openrouter-models", summary="Fetch live free models from OpenRouter")
+async def get_openrouter_models():
+    import httpx, os
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            "https://openrouter.ai/api/v1/models",
+            headers={"Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}"}
+        )
+        data = response.json()
+        free_models = [
+            m["id"] for m in data.get("data", [])
+            if ":free" in m["id"]
+        ]
+        return {"models": free_models}
