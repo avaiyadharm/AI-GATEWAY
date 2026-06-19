@@ -38,7 +38,7 @@ class ChatRequest(BaseModel):
             "example": {
                 "query": "What is the capital of France?",
                 "provider": "groq",
-                "model": "llama3-8b-8192",
+                "model": "llama-3.1-8b-instant",
                 "max_tokens": 500,
                 "temperature": 0.7
             }

@@ -51,17 +51,15 @@ async def chat(request: ChatRequest):
     logger.info(f"Response tokens: in={result.get('input_tokens')}, out={result.get('output_tokens')}")
 
     return ChatResponse(**result)
-
-
 @router.get("/models", summary="List available models per provider")
 async def list_models():
     """Returns a static list of well-known models for each provider."""
     return {
         "groq": [
-            "llama3-8b-8192",
-            "llama3-70b-8192",
+            "llama-3.1-8b-instant",
+            "llama-3.3-70b-versatile",
             "mixtral-8x7b-32768",
-            "gemma2-9b-it"
+            "gemma2-9b-it",
         ],
         "openrouter": [
             "mistralai/mistral-7b-instruct",
