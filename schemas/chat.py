@@ -17,9 +17,9 @@ class ChatRequest(BaseModel):
         description="The model name (e.g. 'llama3-8b-8192' for Groq)"
     )
     max_tokens: int = Field(
-        default=1000,
+        default=4096,
         ge=1,
-        le=4096,
+        le=8192,
         description="Maximum tokens in the response"
     )
     temperature: float = Field(

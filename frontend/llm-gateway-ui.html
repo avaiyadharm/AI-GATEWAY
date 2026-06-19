@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LLM Gateway</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap');
@@ -492,27 +494,67 @@
   }
 
   /* ── Markdown in AI bubbles ── */
+  .msg.ai .bubble {
+    line-height: 1.7;
+    font-size: 14px;
+  }
+  .msg.ai .bubble p {
+    margin: 8px 0;
+  }
+  .msg.ai .bubble ul,
+  .msg.ai .bubble ol {
+    padding-left: 24px;
+    margin: 8px 0;
+  }
+  .msg.ai .bubble li {
+    margin: 4px 0;
+  }
+  .msg.ai .bubble h1,
+  .msg.ai .bubble h2,
+  .msg.ai .bubble h3 {
+    margin: 12px 0 6px 0;
+    font-weight: 600;
+  }
+  .msg.ai .bubble code:not(pre code) {
+    background: rgba(110,118,129,0.2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .msg.ai .bubble pre code {
+    background: transparent;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
   .msg.ai .bubble pre {
     background: #1e1e1e;
     color: #d4d4d4;
-    padding: 12px 16px;
+    padding: 16px;
+    padding-top: 36px;
     border-radius: 8px;
     overflow-x: auto;
-    font-family: var(--font-mono);
     font-size: 13px;
+    line-height: 1.6;
     margin: 8px 0;
   }
-  .msg.ai .bubble code {
-    font-family: var(--font-mono);
-    font-size: 13px;
+  .msg.ai .bubble blockquote {
+    border-left: 3px solid #555;
+    margin: 8px 0;
+    padding-left: 12px;
+    color: #aaa;
   }
-  .msg.ai .bubble p { margin: 6px 0; }
-  .msg.ai .bubble ul, .msg.ai .bubble ol {
-    padding-left: 20px;
-    margin: 6px 0;
+
+  /* Streaming cursor animation */
+  .streaming-cursor::after {
+    content: '▋';
+    animation: cursorBlink 0.7s infinite;
+    color: #888;
   }
-  .msg.ai .bubble h1, .msg.ai .bubble h2, .msg.ai .bubble h3 {
-    margin: 10px 0 6px;
+  @keyframes cursorBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
   }
 </style>
 </head>
@@ -559,7 +601,7 @@
       </div>
       <div>
         <label>Max tokens</label>
-        <input type="number" id="maxTokens" value="500" min="64" max="4096" step="64">
+        <input type="number" id="maxTokens" value="4096" min="64" max="8192" step="64">
       </div>
     </div>
   </div>
@@ -777,6 +819,7 @@ async function sendMessage() {
     } else {
       // Create an empty AI bubble to stream into
       const bubble = addMessage('ai', '');
+      bubble.classList.add('streaming-cursor');
       let fullResponse = '';
 
       const reader = res.body.getReader();
@@ -784,10 +827,15 @@ async function sendMessage() {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          // Final render with copy buttons
+          bubble.innerHTML = renderMarkdown(fullResponse);
+          bubble.classList.remove('streaming-cursor');
+          break;
+        }
         const token = decoder.decode(value, { stream: true });
         fullResponse += token;
-        // Render markdown as tokens stream in
+        // Fast render while streaming (no copy buttons yet)
         bubble.innerHTML = marked.parse(fullResponse);
         document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
       }
@@ -812,6 +860,67 @@ function addErrorMsg(msg) {
   msgs.appendChild(el);
   msgs.scrollTop = msgs.scrollHeight;
 }
+// ── Configure marked.js with highlight.js ──────────────────────────────────
+marked.setOptions({
+    highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+            return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+    },
+    breaks: true,
+    gfm: true
+});
+
+// Global copy function — survives innerHTML serialization
+function copyCode(btn) {
+    const pre = btn.closest('.code-block-wrapper').querySelector('pre');
+    const code = pre.querySelector('code');
+    const text = code ? (code.innerText || code.textContent) : (pre.innerText || pre.textContent);
+
+    // Try clipboard API first, fallback to execCommand
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(() => showCopied(btn)).catch(() => fallbackCopy(text, btn));
+    } else {
+        fallbackCopy(text, btn);
+    }
+}
+
+function fallbackCopy(text, btn) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+    showCopied(btn);
+}
+
+function showCopied(btn) {
+    btn.innerText = '✓ Copied!';
+    btn.style.background = '#2ea043';
+    btn.style.color = '#fff';
+    setTimeout(() => {
+        btn.innerText = 'Copy';
+        btn.style.background = '#3a3a3a';
+        btn.style.color = '#ccc';
+    }, 2000);
+}
+
+function renderMarkdown(text) {
+    let html = marked.parse(text);
+
+    // Wrap every <pre> in a container with a copy button
+    html = html.replace(/<pre>/g, `<div class="code-block-wrapper" style="position:relative;margin:10px 0;">
+        <button onclick="copyCode(this)" style="position:absolute;top:8px;right:8px;background:#3a3a3a;color:#ccc;border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer;z-index:10;transition:background 0.2s;">Copy</button>
+        <pre style="background:#1e1e1e;padding:16px;padding-top:36px;border-radius:8px;overflow-x:auto;font-size:13px;line-height:1.6;margin:0;">`);
+    html = html.replace(/<\/pre>/g, `</pre></div>`);
+
+    return html;
+}
+
 </script>
 </body>
 </html>
