@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from schemas.chat import ChatRequest, ChatResponse
-from services.groq_service import call_groq
-from services.openrouter_service import call_openrouter
+from services.groq_service import call_groq, call_groq_stream
+from services.openrouter_service import call_openrouter, call_openrouter_stream
 import logging
 
 router = APIRouter(prefix="/api", tags=["Chat"])
@@ -51,6 +52,34 @@ async def chat(request: ChatRequest):
     logger.info(f"Response tokens: in={result.get('input_tokens')}, out={result.get('output_tokens')}")
 
     return ChatResponse(**result)
+
+
+@router.post("/chat/stream", summary="Stream a response from an LLM")
+async def chat_stream(request: ChatRequest):
+    """Stream tokens from any supported LLM provider."""
+    async def generate():
+        if request.provider == "groq":
+            async for token in call_groq_stream(
+                query=request.query,
+                model=request.model,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                system_prompt=request.system_prompt
+            ):
+                yield token
+        elif request.provider == "openrouter":
+            async for token in call_openrouter_stream(
+                query=request.query,
+                model=request.model,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                system_prompt=request.system_prompt
+            ):
+                yield token
+
+    return StreamingResponse(generate(), media_type="text/plain")
+
+
 @router.get("/models", summary="List available models per provider")
 async def list_models():
     """Returns a static list of well-known models for each provider."""

@@ -46,3 +46,23 @@ async def call_groq(
             raise HTTPException(status_code=404, detail=f"Model '{model}' not found on Groq.")
         else:
             raise HTTPException(status_code=500, detail=f"Groq error: {error_msg}")
+
+
+async def call_groq_stream(query: str, model: str, max_tokens: int,
+                           temperature: float, system_prompt: str = None):
+    client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": query})
+
+    stream = await client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        stream=True
+    )
+    async for chunk in stream:
+        if chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
