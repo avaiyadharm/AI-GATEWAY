@@ -1199,13 +1199,9 @@ async function sendMessage() {
             
             const chunk = decoder.decode(value, { stream: true });
             
-            // Feed chunk character by character with small delay
-            // so it feels like typing not dumping
-            for (let i = 0; i < chunk.length; i++) {
-                await new Promise(resolve => setTimeout(resolve, 8));
-                fullResponse += chunk[i];
-                scheduleRender();
-            }
+            // Just append the chunk directly for maximum streaming speed
+            fullResponse += chunk;
+            scheduleRender();
         }
 
         // Remove cursor
