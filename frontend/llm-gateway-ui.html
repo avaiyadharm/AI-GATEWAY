@@ -1185,8 +1185,8 @@ async function sendMessage() {
             
             requestAnimationFrame(() => {
                 renderScheduled = false;
-                // Show plain text while streaming
-                aiMessageDiv.innerHTML = escapeHtml(fullResponse) + 
+                // Render markdown live while streaming
+                aiMessageDiv.innerHTML = renderMarkdown(fullResponse) + 
                     '<span class="cursor">▋</span>';
                 chatContainer.scrollTop = chatContainer.scrollHeight;
             });

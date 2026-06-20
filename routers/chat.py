@@ -82,7 +82,12 @@ async def chat_stream(request: ChatRequest):
         except Exception as e:
             yield f"\n\n⚠ **Error from Provider:** {str(e)}"
 
-    return StreamingResponse(generate(), media_type="text/plain")
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
 
 
 @router.get("/models", summary="List available models per provider")
